@@ -319,6 +319,7 @@ impl McpGatewayManager {
                 name,
                 arguments,
                 expected_schema,
+                allow_resource_links,
             } => {
                 let Some((provider, timeout, max_description_bytes)) =
                     self.exact_provider(&provider_id, &provider_instance_id)
@@ -346,7 +347,7 @@ impl McpGatewayManager {
                             return Err(ProviderFailure::not_started("provider_timeout"));
                         }
                         self.commit_provider_dispatch(&provider)?;
-                        connection.tools_call(&name, arguments, remaining)
+                        connection.tools_call(&name, arguments, remaining, allow_resource_links)
                     },
                 ) {
                     Ok(result) => {
@@ -859,6 +860,7 @@ impl ProviderConnection {
         name: &str,
         arguments: Value,
         timeout: Duration,
+        allow_resource_links: bool,
     ) -> Result<McpGatewayToolResult, ProviderFailure> {
         // Outer MCP caller metadata deliberately stops at the WebCodex trust
         // boundary. Provider tools/call receives only gateway-owned fields.
@@ -906,6 +908,11 @@ impl ProviderConnection {
                     });
                 }
                 "resource_link" => {
+                    if !allow_resource_links {
+                        // An old Server cannot decode this result variant. Since
+                        // tools/call completed, send a deterministic completed error.
+                        return Err(ProviderFailure::completed("unsupported_provider_content"));
+                    }
                     let link = serde_json::from_value(Value::Object(item.clone()))
                         .map_err(|_| ProviderFailure::completed("invalid_provider_result"))?;
                     content.push(link);

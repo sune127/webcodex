@@ -152,6 +152,14 @@ impl Fixture {
     }
 
     fn call(&self, provider: &McpGatewayProvider) -> McpGatewayResponse {
+        self.call_with_resource_links(provider, true)
+    }
+
+    fn call_with_resource_links(
+        &self,
+        provider: &McpGatewayProvider,
+        allow_resource_links: bool,
+    ) -> McpGatewayResponse {
         self.manager.handle(McpGatewayRequest::ToolsCall {
             provider_id: provider.provider_id.clone(),
             provider_instance_id: provider.provider_instance_id.clone(),
@@ -165,6 +173,7 @@ impl Fixture {
                 output_schema: None,
                 annotations: None,
             },
+            allow_resource_links,
         })
     }
 
@@ -698,6 +707,22 @@ fn resource_link_result_succeeds_with_standard_wire_fields() {
     );
     assert_eq!(response.dispatch_state, McpGatewayDispatchState::Completed);
     assert_eq!(fixture.marker_count("call"), 1);
+}
+
+#[test]
+fn old_server_request_never_returns_resource_link_variant_after_dispatch() {
+    let fixture = Fixture::new("resource_link_result", 3);
+    let provider = fixture.provider();
+    assert!(fixture.list(&provider).error.is_none());
+    let response = fixture.call_with_resource_links(&provider, false);
+    assert_eq!(response.dispatch_state, McpGatewayDispatchState::Completed);
+    assert_eq!(
+        response.error.as_ref().map(|error| error.code.as_str()),
+        Some("unsupported_provider_content")
+    );
+    assert_eq!(fixture.marker_count("call"), 1);
+    assert!(fixture.list(&provider).error.is_none());
+    assert_eq!(fixture.marker_count("start"), 1);
 }
 
 #[test]

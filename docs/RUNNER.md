@@ -387,6 +387,7 @@ The built-in Runner-to-provider gateway is intentionally a bounded stdio tool su
 - `tools/list` keeps the 1 MiB catalog and 128-tool caps; the 4096-node JSON budget applies separately to each tool and the response envelope, while existing depth and per-schema limits remain in effect;
 - tool results support text plus standard bounded image content blocks, preserving provider content order; image data must be standard Base64 with MIME `image/png`, `image/jpeg`, or `image/webp`, and all image blocks in one result share a 4 MiB decoded-data cap;
 - `resource_link` content blocks preserve the provider URI, name, and optional resource metadata in that same order, within the existing 512 KiB non-image result budget and JSON structure limits; links are forwarded as data, without fetching their targets or adding downstream `resources/read` support;
+- `resource_link` in Runner-to-Server tool results is a separate rolling-wire capability (`mcp_gateway_resource_links`); a new Server opts in only for a Runner advertising it, and a new Runner treats an old Server's unmarked `tools/call` as legacy, returning a completed unsupported-content error rather than an undecodable wire payload;
 - bounded `structuredContent` is preserved independently of image content;
 - audio, embedded resource, and unknown content block types remain unsupported.
 

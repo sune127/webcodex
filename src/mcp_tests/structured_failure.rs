@@ -285,6 +285,13 @@ async fn gateway_and_app_canonical_failures_use_request_presentation() {
 }
 
 async fn register_failure_runner(runtime: &ToolRuntime) {
+    register_failure_runner_with_resource_links(runtime, false).await;
+}
+
+async fn register_failure_runner_with_resource_links(
+    runtime: &ToolRuntime,
+    allow_resource_links: bool,
+) {
     runtime
         .runner_registry
         .register(crate::test_support::current_runner_registration(
@@ -317,6 +324,7 @@ async fn register_failure_runner(runtime: &ToolRuntime) {
                     structured_process_argv: true,
                     apply_text_edit_local_guard_without_sha: true,
                     apply_text_edit_occurrence: true,
+                    mcp_gateway_resource_links: allow_resource_links,
                     ..Default::default()
                 },
             },
@@ -474,7 +482,10 @@ async fn http_openai_mcp_passthrough_preserves_provider_error() {
             } else {
                 assert!(matches!(
                     request.mcp_gateway,
-                    Some(McpGatewayRequest::ToolsCall { .. })
+                    Some(McpGatewayRequest::ToolsCall {
+                        allow_resource_links: false,
+                        ..
+                    })
                 ));
                 McpGatewayResponsePayload::ToolResult {
                     result: provider_result.clone(),
@@ -532,7 +543,7 @@ async fn http_mcp_passthrough_preserves_mixed_image_and_resource_link_content() 
     _env.disable_open_anonymous();
     let (_tmp, db) = test_db();
     let runtime = Arc::new(test_runtime());
-    register_failure_runner(&runtime).await;
+    register_failure_runner_with_resource_links(&runtime, true).await;
     let service = Service::new(build_test_router(
         test_config(Some("secret")),
         db,
@@ -594,7 +605,10 @@ async fn http_mcp_passthrough_preserves_mixed_image_and_resource_link_content() 
             } else {
                 assert!(matches!(
                     request.mcp_gateway,
-                    Some(McpGatewayRequest::ToolsCall { .. })
+                    Some(McpGatewayRequest::ToolsCall {
+                        allow_resource_links: true,
+                        ..
+                    })
                 ));
                 McpGatewayResponsePayload::ToolResult {
                     result: provider_result.clone(),

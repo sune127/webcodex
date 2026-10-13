@@ -44,6 +44,10 @@ pub const MCP_GATEWAY_MAX_JSON_DEPTH: usize = 16;
 pub const MCP_GATEWAY_MAX_JSON_NODES: usize = 4_096;
 pub const MCP_GATEWAY_MAX_JSON_STRING_BYTES: usize = 512 * 1024;
 
+fn is_false(value: &bool) -> bool {
+    !*value
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]
 pub enum McpGatewayRequest {
@@ -61,6 +65,9 @@ pub enum McpGatewayRequest {
         name: String,
         arguments: Value,
         expected_schema: McpGatewaySchemaObservation,
+        /// An older Server never opts in to resource_link on this closed result wire.
+        #[serde(default, skip_serializing_if = "is_false")]
+        allow_resource_links: bool,
     },
 }
 
@@ -343,6 +350,7 @@ pub fn validate_request(request: &McpGatewayRequest) -> Result<(), String> {
             name,
             arguments,
             expected_schema,
+            ..
         } => {
             validate_provider_id(provider_id)?;
             validate_provider_instance_id(provider_instance_id)?;
@@ -1009,6 +1017,39 @@ mod tests {
     }
 
     #[test]
+    fn resource_link_wire_opt_in_defaults_off_for_older_servers() {
+        let legacy = json!({
+            "operation": "tools_call",
+            "provider_id": "p",
+            "provider_instance_id": "i",
+            "name": "t",
+            "arguments": {},
+            "expected_schema": {"inputSchema": {"type": "object"}}
+        });
+        let request: McpGatewayRequest = serde_json::from_value(legacy.clone()).unwrap();
+        assert!(matches!(
+            request,
+            McpGatewayRequest::ToolsCall {
+                allow_resource_links: false,
+                ..
+            }
+        ));
+        assert_eq!(serde_json::to_value(request).unwrap(), legacy);
+
+        let mut enabled = legacy;
+        enabled["allow_resource_links"] = json!(true);
+        let request: McpGatewayRequest = serde_json::from_value(enabled.clone()).unwrap();
+        assert!(matches!(
+            request,
+            McpGatewayRequest::ToolsCall {
+                allow_resource_links: true,
+                ..
+            }
+        ));
+        assert_eq!(serde_json::to_value(request).unwrap(), enabled);
+    }
+
+    #[test]
     fn tools_call_wire_has_no_caller_meta_but_tool_descriptor_meta_is_preserved() {
         let request = McpGatewayRequest::ToolsCall {
             provider_id: "provider".to_string(),
@@ -1020,8 +1061,10 @@ mod tests {
                 output_schema: None,
                 annotations: None,
             },
+            allow_resource_links: false,
         };
         let encoded = serde_json::to_value(&request).unwrap();
+        assert!(encoded.get("allow_resource_links").is_none());
         assert!(encoded.get("_meta").is_none());
         let mut injected = encoded;
         injected["_meta"] = json!({"progressToken": "outer"});
