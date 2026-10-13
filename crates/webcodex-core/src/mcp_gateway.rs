@@ -174,6 +174,25 @@ pub enum McpGatewayContent {
         #[serde(rename = "mimeType")]
         mime_type: String,
     },
+    #[serde(rename = "resource_link")]
+    ResourceLink {
+        uri: String,
+        name: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        title: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        description: Option<String>,
+        #[serde(default, rename = "mimeType", skip_serializing_if = "Option::is_none")]
+        mime_type: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        size: Option<u64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        annotations: Option<serde_json::Map<String, Value>>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        icons: Option<Vec<serde_json::Map<String, Value>>>,
+        #[serde(default, rename = "_meta", skip_serializing_if = "Option::is_none")]
+        meta: Option<serde_json::Map<String, Value>>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -560,6 +579,36 @@ pub fn validate_tool_result(result: &McpGatewayToolResult) -> Result<(), String>
                     ));
                 }
             }
+            McpGatewayContent::ResourceLink {
+                uri,
+                name,
+                title,
+                description,
+                mime_type,
+                ..
+            } => {
+                for text in [
+                    Some(uri),
+                    Some(name),
+                    title.as_ref(),
+                    description.as_ref(),
+                    mime_type.as_ref(),
+                ]
+                .into_iter()
+                .flatten()
+                {
+                    validate_text_controls(text, "tool result resource link")?;
+                }
+                // Links and their metadata share the existing non-image budget.
+                // Forward the URI as data; the gateway does not dereference it.
+                let value = serde_json::to_value(content)
+                    .map_err(|_| "tool result resource link could not be serialized".to_string())?;
+                validate_json_value(
+                    &value,
+                    MCP_GATEWAY_MAX_RESULT_BYTES,
+                    "tool result resource link",
+                )?;
+            }
         }
     }
     if let Some(structured) = result.structured_content.as_ref() {
@@ -871,6 +920,45 @@ mod tests {
         assert!(validate_tool_result(&aggregate)
             .unwrap_err()
             .contains("aggregate maximum"));
+    }
+
+    #[test]
+    fn resource_link_metadata_shares_non_image_and_json_structure_bounds() {
+        let raw = json!({
+            "content": [{
+                "type": "resource_link", "uri": "blockbench://project/model.bbmodel",
+                "name": "model.bbmodel", "description": "x".repeat(300 * 1024),
+                "_meta": {"providerExtension": true}
+            }],
+            "isError": false
+        });
+        let result: McpGatewayToolResult = serde_json::from_value(raw.clone()).unwrap();
+        validate_tool_result(&result).unwrap();
+        assert_eq!(serde_json::to_value(&result).unwrap(), raw);
+
+        let mut aggregate = result.clone();
+        aggregate.content.push(McpGatewayContent::Text {
+            text: "x".repeat(300 * 1024),
+        });
+        assert!(validate_tool_result(&aggregate)
+            .unwrap_err()
+            .contains("non-image"));
+
+        let mut deep = raw.clone();
+        let mut metadata = json!({});
+        for _ in 0..=MCP_GATEWAY_MAX_JSON_DEPTH {
+            metadata = json!({"next": metadata});
+        }
+        deep["content"][0]["_meta"] = metadata;
+        let result = serde_json::from_value(deep).unwrap();
+        assert!(validate_tool_result(&result).unwrap_err().contains("depth"));
+
+        let mut wide = raw;
+        wide["content"][0]["_meta"] = json!({"values": vec![0; MCP_GATEWAY_MAX_JSON_NODES]});
+        let result = serde_json::from_value(wide).unwrap();
+        assert!(validate_tool_result(&result)
+            .unwrap_err()
+            .contains("node count"));
     }
 
     #[test]

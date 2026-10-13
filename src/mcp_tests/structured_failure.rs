@@ -526,7 +526,7 @@ async fn http_openai_mcp_passthrough_preserves_provider_error() {
 
 #[allow(clippy::await_holding_lock)]
 #[tokio::test]
-async fn http_mcp_passthrough_preserves_mixed_image_content_order() {
+async fn http_mcp_passthrough_preserves_mixed_image_and_resource_link_content() {
     let _env = crate::auth::AuthEnvGuard::new();
     _env.enable_direct_shared_key();
     _env.disable_open_anonymous();
@@ -547,6 +547,19 @@ async fn http_mcp_passthrough_preserves_mixed_image_content_order() {
                 data: "iVBORw0KGgo=".into(),
                 mime_type: "image/png".into(),
             },
+            serde_json::from_value(json!({
+                "type": "resource_link",
+                "uri": "blockbench://project/model.bbmodel",
+                "name": "model.bbmodel",
+                "title": "Model",
+                "description": "Current project",
+                "mimeType": "application/json",
+                "size": 1024,
+                "annotations": {"audience": ["user"], "priority": 0.5},
+                "icons": [{"src": "https://example.com/icon.png", "mimeType": "image/png"}],
+                "_meta": {"providerExtension": true}
+            }))
+            .unwrap(),
             McpGatewayContent::Text {
                 text: "after".into(),
             },
@@ -629,7 +642,8 @@ async fn http_mcp_passthrough_preserves_mixed_image_content_order() {
             assert_eq!(body["result"]["content"][1]["type"], "image");
             assert_eq!(body["result"]["content"][1]["data"], "iVBORw0KGgo=");
             assert_eq!(body["result"]["content"][1]["mimeType"], "image/png");
-            assert_eq!(body["result"]["content"][2]["text"], "after");
+            assert_eq!(body["result"]["content"][2]["type"], "resource_link");
+            assert_eq!(body["result"]["content"][3]["text"], "after");
             assert_eq!(
                 body["result"]["structuredContent"],
                 json!({"kind": "mixed"})
